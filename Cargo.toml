@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/strata_editor",
+]
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Strata Contributors"]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/strataui/editor"
+homepage = "https://github.com/strataui/editor"
+documentation = "https://docs.rs/strata-editor"
+keywords = ["editor", "code-editor", "rich-text", "tree-sitter", "strata"]
+categories = ["gui", "text-editors"]
+
+[workspace.dependencies]
+strata-editor = { path = "crates/strata_editor", version = "0.1.0" }
+strata-primitives = "0.1.0"
+strata-dom = "0.1.2"
+strata-layout = "0.1.0"
+strata-macro = "0.1.2"
+strata-render = "0.1.2"
+strata-ui = "0.1.4"
+
+[profile.dev]
+opt-level = 1

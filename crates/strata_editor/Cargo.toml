@@ -1,0 +1,28 @@
+[package]
+name = "strata-editor"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Monaco-class interactive code editor and rich-text document engine for Strata UI"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+strata-dom = { workspace = true }
+strata-layout = { workspace = true }
+strata-macro = { workspace = true }
+strata-primitives = { workspace = true }
+strata-render = { workspace = true }
+regex = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tree-sitter = "0.27.2"
+tree-sitter-rust = "0.24.2"
+tree-sitter-javascript = "0.25.0"
+
+[dev-dependencies]
+strata-ui = { workspace = true }
