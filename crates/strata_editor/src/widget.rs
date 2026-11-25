@@ -229,6 +229,7 @@ pub fn use_code_editor(initial_text: &str, language: Language) -> CodeEditorHand
 /// Supports virtualized rendering, incremental Tree-Sitter & 10-language syntax highlighting,
 /// gutter folding, Find & Replace (`Ctrl+F` / `Ctrl+H`), Canvas2D minimap, LSP/syntax
 /// diagnostics, multi-cursor keyboard/mouse editing, and `--strata-editor-*` CSS-variable theming.
+#[allow(clippy::too_many_arguments)]
 #[component]
 pub fn CodeEditorWidget(
     handle: CodeEditorHandle,
@@ -308,9 +309,7 @@ pub fn render_interactive_editor(
     let visible_count = (effective_vh / effective_lh).ceil() as usize;
     let start_idx = first_visible.saturating_sub(2).min(total_visible);
     let end_idx = (first_visible + visible_count + 2).min(total_visible);
-
-    let top_spacer_h = start_idx as f32 * effective_lh;
-    let bottom_spacer_h = total_visible.saturating_sub(end_idx) as f32 * effective_lh;
+    let slice_offset_y = -(scroll_top - (start_idx as f32 * effective_lh));
 
     let primary_pos = ed.cursors().primary().focus;
     let matching_bracket = ed
@@ -319,19 +318,7 @@ pub fn render_interactive_editor(
     let all_folds = ed.fold_ranges();
     let active_search_idx = ed.search().active_match_index;
 
-    let mut row_nodes = Vec::with_capacity((end_idx - start_idx) + 2);
-
-    if top_spacer_h > 0.0 {
-        row_nodes.push(NodeBlueprint::element(
-            Tag::Div,
-            vec!["w-full pointer-events-none shrink-0".to_string()],
-            vec![Attribute::property(
-                "style",
-                format!("height: {:.1}px;", top_spacer_h),
-            )],
-            Vec::new(),
-        ));
-    }
+    let mut row_nodes = Vec::with_capacity(end_idx.saturating_sub(start_idx));
 
     for &logical_line in &visible_lines[start_idx..end_idx] {
         let Some(line_str) = ed.buffer().line(logical_line) else {
@@ -389,7 +376,7 @@ pub fn render_interactive_editor(
                 };
                 gutter_items.push(NodeBlueprint::element(
                     Tag::Span,
-                    vec!["w-9 text-right pr-1.5 select-none font-mono text-xs shrink-0".to_string()],
+                    vec!["w-9 text-right pr-1.5 select-none font-mono text-xs shrink-0 whitespace-nowrap".to_string()],
                     vec![Attribute::property("style", format!("color: {};", num_color))],
                     vec![NodeBlueprint::text((logical_line + 1).to_string())],
                 ));
@@ -438,7 +425,7 @@ pub fn render_interactive_editor(
 
             row_children.push(NodeBlueprint::element(
                 Tag::Div,
-                vec!["flex items-center px-1.5 select-none shrink-0 border-r".to_string()],
+                vec!["flex items-center h-full px-1.5 select-none shrink-0 border-r".to_string()],
                 vec![Attribute::property(
                     "style",
                     format!(
@@ -452,7 +439,11 @@ pub fn render_interactive_editor(
 
         // 2. Syntax-colored code content with search matches, bracket match, carets, diagnostics, and fold badge
         let tokens = ed.highlighter().highlight_line_ast(logical_line, line_str);
-        let search_matches = ed.search().matches_on_line(logical_line);
+        let search_matches = if ed.search().is_open {
+            ed.search().matches_on_line(logical_line)
+        } else {
+            Vec::new()
+        };
         let line_selections: Vec<(usize, usize)> = ed
             .cursors()
             .all()
@@ -497,7 +488,7 @@ pub fn render_interactive_editor(
             code_spans.push(NodeBlueprint::element(
                 Tag::Button,
                 vec![
-                    "ml-2 px-1.5 py-0.5 rounded text-[11px] font-mono cursor-pointer border-0"
+                    "ml-2 px-1.5 py-0.5 rounded text-[11px] font-mono leading-none whitespace-nowrap shrink-0 cursor-pointer border-0"
                         .to_string(),
                 ],
                 vec![
@@ -520,23 +511,17 @@ pub fn render_interactive_editor(
             ));
         }
 
-        let code_cell_style = if let Some(sev) = line_diag_sev {
-            format!(
-                "text-decoration: underline wavy {};",
-                theme.diagnostic_css(sev)
-            )
-        } else {
-            String::new()
-        };
-
         let mut code_attrs = vec![Attribute::property("data-line-index", logical_line.to_string())];
-        if !code_cell_style.is_empty() {
+        if line_diag_sev.is_some() {
             code_attrs.push(Attribute::property("data-has-diagnostic", "true"));
         }
 
         row_children.push(NodeBlueprint::element(
-            Tag::Span,
-            vec!["flex-1 pl-2.5 pr-4 whitespace-pre font-mono relative".to_string()],
+            Tag::Div,
+            vec![
+                "flex-1 min-w-0 h-full flex items-center pl-2.5 pr-4 whitespace-pre font-mono relative overflow-hidden"
+                    .to_string(),
+            ],
             code_attrs,
             code_spans,
         ));
@@ -555,7 +540,7 @@ pub fn render_interactive_editor(
 
         row_nodes.push(NodeBlueprint::element(
             Tag::Div,
-            vec!["flex items-center w-full shrink-0".to_string()],
+            vec!["flex items-center w-full shrink-0 overflow-hidden".to_string()],
             vec![
                 Attribute::property("data-editor-row", logical_line.to_string()),
                 Attribute::property("style", row_bg),
@@ -564,17 +549,15 @@ pub fn render_interactive_editor(
         ));
     }
 
-    if bottom_spacer_h > 0.0 {
-        row_nodes.push(NodeBlueprint::element(
-            Tag::Div,
-            vec!["w-full pointer-events-none shrink-0".to_string()],
-            vec![Attribute::property(
-                "style",
-                format!("height: {:.1}px;", bottom_spacer_h),
-            )],
-            Vec::new(),
-        ));
-    }
+    let slice_container = NodeBlueprint::element(
+        Tag::Div,
+        vec!["flex flex-col w-full relative".to_string()],
+        vec![
+            Attribute::property("data-editor-slice", "true"),
+            Attribute::property("style", format!("top: {:.2}px;", slice_offset_y)),
+        ],
+        row_nodes,
+    );
 
     // Main virtualized viewport pane with pointer + wheel events
     let h_down = handle.clone();
@@ -626,7 +609,7 @@ pub fn render_interactive_editor(
                 });
             }),
         ],
-        row_nodes,
+        vec![slice_container],
     );
 
     // Optional Canvas2D minimap
@@ -726,6 +709,8 @@ pub fn render_interactive_editor(
 
     let h_key = handle.clone();
     let on_change_key = options.on_change.clone();
+    let h_input = handle.clone();
+    let on_change_input = options.on_change.clone();
     let root_classes = if options.class.is_empty() {
         "strata-code-editor flex flex-col font-mono rounded-lg border overflow-hidden relative outline-none"
             .to_string()
@@ -756,16 +741,11 @@ pub fn render_interactive_editor(
             Attribute::event_listener(EventType::KeyDown, move |e: Event| {
                 let mut mutated_text: Option<String> = None;
                 let handled = h_key.with_editor_mut(|editor| {
-                    let before_rev_len = editor.buffer().total_text_byte_len();
+                    let before_edit_rev = editor.edit_revision();
                     let handled = editor.handle_key_event(&e);
                     if handled
                         && on_change_key.is_some()
-                        && (editor.buffer().total_text_byte_len() != before_rev_len
-                            || matches!(
-                                e.key.as_str(),
-                                "Enter" | "Backspace" | "Delete" | "Tab" | "z" | "Z" | "y" | "Y" | "/"
-                            )
-                            || e.key.chars().count() == 1)
+                        && editor.edit_revision() != before_edit_rev
                     {
                         mutated_text = Some(editor.text());
                     }
@@ -775,6 +755,27 @@ pub fn render_interactive_editor(
                     e.prevent_default();
                     e.stop_propagation();
                     if let (Some(cb), Some(text)) = (&on_change_key, mutated_text) {
+                        cb(text);
+                    }
+                }
+            }),
+            Attribute::event_listener(EventType::Input, move |e: Event| {
+                let mut mutated_text: Option<String> = None;
+                let handled = h_input.with_editor_mut(|editor| {
+                    let before_edit_rev = editor.edit_revision();
+                    let handled = editor.handle_input_event(&e);
+                    if handled
+                        && on_change_input.is_some()
+                        && editor.edit_revision() != before_edit_rev
+                    {
+                        mutated_text = Some(editor.text());
+                    }
+                    handled
+                });
+                if handled {
+                    e.prevent_default();
+                    e.stop_propagation();
+                    if let (Some(cb), Some(text)) = (&on_change_input, mutated_text) {
                         cb(text);
                     }
                 }
@@ -795,6 +796,58 @@ fn compute_gutter_width(options: &CodeEditorOptions) -> f32 {
     w
 }
 
+#[inline]
+fn char_slice_to_str(s: &str, start_char: usize, end_char: usize) -> &str {
+    if start_char >= end_char {
+        return "";
+    }
+    let start_byte = s
+        .char_indices()
+        .nth(start_char)
+        .map(|(b, _)| b)
+        .unwrap_or(s.len());
+    let end_byte = s
+        .char_indices()
+        .nth(end_char)
+        .map(|(b, _)| b)
+        .unwrap_or(s.len());
+    if start_byte <= end_byte {
+        &s[start_byte..end_byte]
+    } else {
+        ""
+    }
+}
+
+fn make_code_span(text: String, style: Option<&str>) -> NodeBlueprint {
+    let attrs = match style {
+        Some(st) if !st.is_empty() => vec![Attribute::property("style", st.to_string())],
+        _ => Vec::new(),
+    };
+    NodeBlueprint::element(
+        Tag::Span,
+        vec!["whitespace-pre shrink-0".to_string()],
+        attrs,
+        vec![NodeBlueprint::text(text)],
+    )
+}
+
+fn make_caret_anchor(col: usize, caret_color: &str) -> NodeBlueprint {
+    NodeBlueprint::element(
+        Tag::Span,
+        vec!["relative inline-block w-0 h-full shrink-0 pointer-events-none".to_string()],
+        vec![Attribute::property("data-editor-caret-anchor", col.to_string())],
+        vec![NodeBlueprint::element(
+            Tag::Span,
+            vec!["absolute left-0 top-[2px] w-[2px] h-[16px] pointer-events-none".to_string()],
+            vec![
+                Attribute::property("data-editor-caret-col", col.to_string()),
+                Attribute::property("style", format!("background-color: {};", caret_color)),
+            ],
+            Vec::new(),
+        )],
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_themed_line_spans(
     line_text: &str,
@@ -807,15 +860,52 @@ fn build_themed_line_spans(
     carets: &[usize],
     line_diag_sev: Option<DiagnosticSeverity>,
 ) -> Vec<NodeBlueprint> {
-    let mut nodes = Vec::new();
     let line_chars = line_text.chars().count();
 
+    let decorate_style = |base: String, char_start: usize, char_end: usize| -> String {
+        let mut style = base;
+        if let Some((idx, _)) = search_matches
+            .iter()
+            .find(|(_, m)| char_start < m.end.col && char_end > m.start.col)
+        {
+            let bg = if *idx == active_search_idx {
+                &theme.find_active_bg
+            } else {
+                &theme.find_match_bg
+            };
+            style.push_str(&format!(" background-color: {}; border-radius: 2px;", bg));
+        } else if selections
+            .iter()
+            .any(|&(s, e)| char_start < e && char_end > s)
+        {
+            style.push_str(&format!(" background-color: {};", theme.selection_bg));
+        } else if let Some(b_col) = matching_bracket_col {
+            if b_col >= char_start && b_col < char_end {
+                style.push_str(&format!(
+                    " background-color: {}; border-radius: 2px;",
+                    theme.bracket_match_bg
+                ));
+            }
+        }
+        if let Some(sev) = line_diag_sev {
+            style.push_str(&format!(
+                " border-bottom: 2px dotted {};",
+                theme.diagnostic_css(sev)
+            ));
+        }
+        style
+    };
+
+    // 1. Build contiguous char-column styled runs covering `line_text`.
+    let mut runs: Vec<(usize, usize, String, String)> = Vec::new();
     if tokens.is_empty() {
         if !line_text.is_empty() {
-            nodes.push(NodeBlueprint::text(line_text));
+            let st = decorate_style(String::new(), 0, line_chars);
+            runs.push((0, line_chars, line_text.to_string(), st));
         }
     } else {
         let mut last_byte = 0usize;
+        let mut cur_char = 0usize;
         for tok in tokens {
             let start_b = tok.start_col.min(line_text.len());
             let end_b = tok.end_col.min(line_text.len());
@@ -823,91 +913,95 @@ fn build_themed_line_spans(
                 && line_text.is_char_boundary(last_byte)
                 && line_text.is_char_boundary(start_b)
             {
-                nodes.push(NodeBlueprint::text(&line_text[last_byte..start_b]));
+                let gap = &line_text[last_byte..start_b];
+                let gap_len = gap.chars().count();
+                let st = decorate_style(String::new(), cur_char, cur_char + gap_len);
+                runs.push((cur_char, cur_char + gap_len, gap.to_string(), st));
+                cur_char += gap_len;
             }
 
             let tok_char_start = if line_text.is_char_boundary(start_b) {
                 line_text[..start_b].chars().count()
             } else {
-                0
+                cur_char
             };
-            let tok_char_end = tok_char_start + tok.text.chars().count();
+            let tok_char_len = tok.text.chars().count();
+            let tok_char_end = tok_char_start + tok_char_len;
 
-            let mut style = format!("color: {};", theme.token_css(tok.token_type));
+            let mut base_style = format!("color: {};", theme.token_css(tok.token_type));
             if matches!(
                 tok.token_type,
                 crate::syntax::TokenType::Keyword
                     | crate::syntax::TokenType::ControlFlow
                     | crate::syntax::TokenType::Heading
             ) {
-                style.push_str(" font-weight: 600;");
+                base_style.push_str(" font-weight: 600;");
             } else if matches!(
                 tok.token_type,
                 crate::syntax::TokenType::Comment | crate::syntax::TokenType::DocComment
             ) {
-                style.push_str(" font-style: italic;");
+                base_style.push_str(" font-style: italic;");
             }
-
-            // Highlight selection / active search match / bracket pair directly on overlapping tokens
-            if selections
-                .iter()
-                .any(|&(s, e)| tok_char_start < e && tok_char_end > s)
-            {
-                style.push_str(&format!(" background-color: {};", theme.selection_bg));
-            } else if let Some((idx, _)) = search_matches
-                .iter()
-                .find(|(_, m)| tok_char_start < m.end.col && tok_char_end > m.start.col)
-            {
-                let bg = if *idx == active_search_idx {
-                    &theme.find_active_bg
-                } else {
-                    &theme.find_match_bg
-                };
-                style.push_str(&format!(" background-color: {}; border-radius: 2px;", bg));
-            } else if let Some(b_col) = matching_bracket_col {
-                if b_col >= tok_char_start && b_col < tok_char_end {
-                    style.push_str(&format!(
-                        " background-color: {}; border-radius: 2px;",
-                        theme.bracket_match_bg
-                    ));
-                }
-            }
-
-            if let Some(sev) = line_diag_sev {
-                style.push_str(&format!(
-                    " border-bottom: 2px dotted {};",
-                    theme.diagnostic_css(sev)
-                ));
-            }
-
-            nodes.push(NodeBlueprint::element(
-                Tag::Span,
-                Vec::<String>::new(),
-                vec![Attribute::property("style", style)],
-                vec![NodeBlueprint::text(tok.text.clone())],
-            ));
+            let st = decorate_style(base_style, tok_char_start, tok_char_end);
+            runs.push((tok_char_start, tok_char_end, tok.text.clone(), st));
             last_byte = end_b.max(last_byte);
+            cur_char = tok_char_end;
         }
         if last_byte < line_text.len() && line_text.is_char_boundary(last_byte) {
-            nodes.push(NodeBlueprint::text(&line_text[last_byte..]));
+            let tail = &line_text[last_byte..];
+            let tail_len = tail.chars().count();
+            let st = decorate_style(String::new(), cur_char, cur_char + tail_len);
+            runs.push((cur_char, cur_char + tail_len, tail.to_string(), st));
         }
     }
 
-    // Render crisp multi-cursor caret bars for any caret anchored on this line
-    for &caret_col in carets {
-        let clamped_col = caret_col.min(line_chars);
-        nodes.push(NodeBlueprint::element(
-            Tag::Span,
-            vec!["inline-block w-[2px] h-[16px] align-middle pointer-events-none".to_string()],
-            vec![
-                Attribute::property("data-editor-caret-col", clamped_col.to_string()),
-                Attribute::property(
-                    "style",
-                    format!("background-color: {};", theme.caret),
-                ),
-            ],
-            Vec::new(),
-        ));
+    // 2. Sort and deduplicate clamped caret columns on this line, then split runs inline
+    //    at every caret column so carets render at their exact column without shifting text.
+    let mut clamped_carets: Vec<usize> = carets.iter().map(|&c| c.min(line_chars)).collect();
+    clamped_carets.sort_unstable();
+    clamped_carets.dedup();
+
+    let mut nodes = Vec::with_capacity(runs.len() + clamped_carets.len() * 2);
+    let mut caret_idx = 0usize;
+
+    for (r_start, r_end, text, style) in runs {
+        while caret_idx < clamped_carets.len() && clamped_carets[caret_idx] <= r_start {
+            nodes.push(make_caret_anchor(clamped_carets[caret_idx], &theme.caret));
+            caret_idx += 1;
+        }
+
+        let mut local_start = 0usize;
+        let run_len = r_end.saturating_sub(r_start);
+        while caret_idx < clamped_carets.len() && clamped_carets[caret_idx] < r_end {
+            let col = clamped_carets[caret_idx];
+            let split_at = col.saturating_sub(r_start).min(run_len);
+            if split_at > local_start {
+                let piece = char_slice_to_str(&text, local_start, split_at);
+                if !piece.is_empty() {
+                    nodes.push(make_code_span(piece.to_string(), Some(style.as_str())));
+                }
+            }
+            nodes.push(make_caret_anchor(col, &theme.caret));
+            local_start = split_at;
+            caret_idx += 1;
+        }
+
+        if local_start == 0 {
+            if !text.is_empty() {
+                nodes.push(make_code_span(text, Some(style.as_str())));
+            }
+        } else if local_start < run_len {
+            let tail = char_slice_to_str(&text, local_start, run_len);
+            if !tail.is_empty() {
+                nodes.push(make_code_span(tail.to_string(), Some(style.as_str())));
+            }
+        }
+    }
+
+    // Emit any remaining carets (e.g. at end-of-line or on empty lines).
+    while caret_idx < clamped_carets.len() {
+        nodes.push(make_caret_anchor(clamped_carets[caret_idx], &theme.caret));
+        caret_idx += 1;
     }
 
     nodes
@@ -929,6 +1023,7 @@ fn build_find_replace_bar(
     let h_prev = handle.clone();
     let h_next = handle.clone();
     let h_close = handle.clone();
+    let h_find_key = handle.clone();
 
     let toggle_btn = |label: &str, active: bool, attr: &str, on_click: Box<dyn Fn(Event)>| {
         let style = if active {
@@ -944,7 +1039,7 @@ fn build_find_replace_bar(
         };
         NodeBlueprint::element(
             Tag::Button,
-            vec!["px-1.5 py-0.5 text-xs font-mono rounded border cursor-pointer".to_string()],
+            vec!["px-1.5 py-0.5 text-xs font-mono rounded border cursor-pointer whitespace-nowrap shrink-0".to_string()],
             vec![
                 Attribute::property("data-find-action", attr),
                 Attribute::property("style", style),
@@ -979,6 +1074,30 @@ fn build_find_replace_bar(
                     ),
                     Attribute::value_listener(EventType::Input, move |val: String| {
                         h_query.with_editor_mut(|editor| editor.set_find_query(val));
+                    }),
+                    Attribute::event_listener(EventType::KeyDown, move |e: Event| {
+                        match e.key.as_str() {
+                            "Escape" => {
+                                e.prevent_default();
+                                e.stop_propagation();
+                                h_find_key.with_editor_mut(CodeEditor::close_find);
+                            }
+                            "Enter" => {
+                                e.prevent_default();
+                                e.stop_propagation();
+                                let shift = e.shift_key;
+                                h_find_key.with_editor_mut(|editor| {
+                                    if shift {
+                                        let _ = editor.find_prev();
+                                    } else {
+                                        let _ = editor.find_next();
+                                    }
+                                });
+                            }
+                            _ => {
+                                e.stop_propagation();
+                            }
+                        }
                     }),
                 ],
                 Vec::new(),
@@ -1021,7 +1140,7 @@ fn build_find_replace_bar(
             ),
             NodeBlueprint::element(
                 Tag::Span,
-                vec!["text-xs font-mono px-1 min-w-[64px] text-center select-none".to_string()],
+                vec!["text-xs font-mono px-1 min-w-[64px] text-center select-none whitespace-nowrap shrink-0".to_string()],
                 vec![
                     Attribute::property("data-find-status", "true"),
                     Attribute::property("style", format!("color: {};", theme.gutter_active_fg)),
@@ -1063,8 +1182,10 @@ fn build_find_replace_bar(
 
     if search.show_replace {
         let h_repl_in = handle.clone();
+        let h_repl_key = handle.clone();
         let h_repl_one = handle.clone();
         let h_repl_all = handle.clone();
+        let cb_repl_enter = on_change.clone();
         let cb_one = on_change.clone();
         let cb_all = on_change;
 
@@ -1090,6 +1211,32 @@ fn build_find_replace_bar(
                         ),
                         Attribute::value_listener(EventType::Input, move |val: String| {
                             h_repl_in.with_editor_mut(|editor| editor.set_replace_text(val));
+                        }),
+                        Attribute::event_listener(EventType::KeyDown, move |e: Event| {
+                            match e.key.as_str() {
+                                "Escape" => {
+                                    e.prevent_default();
+                                    e.stop_propagation();
+                                    h_repl_key.with_editor_mut(CodeEditor::close_find);
+                                }
+                                "Enter" => {
+                                    e.prevent_default();
+                                    e.stop_propagation();
+                                    let updated = h_repl_key.with_editor_mut(|editor| {
+                                        if editor.replace_current() {
+                                            Some(editor.text())
+                                        } else {
+                                            None
+                                        }
+                                    });
+                                    if let (Some(cb), Some(text)) = (&cb_repl_enter, updated) {
+                                        cb(text);
+                                    }
+                                }
+                                _ => {
+                                    e.stop_propagation();
+                                }
+                            }
                         }),
                     ],
                     Vec::new(),
@@ -1166,7 +1313,7 @@ fn build_status_bar(ed: &CodeEditor, theme: &EditorTheme) -> NodeBlueprint {
     NodeBlueprint::element(
         Tag::Div,
         vec![
-            "flex items-center justify-between px-3 py-1 text-[11px] font-mono border-t select-none shrink-0"
+            "flex items-center justify-between gap-3 px-3 py-1 text-[11px] font-mono border-t select-none shrink-0 whitespace-nowrap overflow-hidden"
                 .to_string(),
         ],
         vec![
@@ -1182,12 +1329,12 @@ fn build_status_bar(ed: &CodeEditor, theme: &EditorTheme) -> NodeBlueprint {
         vec![
             NodeBlueprint::element(
                 Tag::Div,
-                vec!["flex items-center gap-3".to_string()],
+                vec!["flex items-center gap-3 whitespace-nowrap overflow-hidden shrink-0".to_string()],
                 Vec::new(),
                 vec![
                     NodeBlueprint::element(
                         Tag::Span,
-                        Vec::<String>::new(),
+                        vec!["whitespace-nowrap shrink-0".to_string()],
                         vec![Attribute::property(
                             "style",
                             format!("color: {};", theme.diag_error),
@@ -1196,26 +1343,41 @@ fn build_status_bar(ed: &CodeEditor, theme: &EditorTheme) -> NodeBlueprint {
                     ),
                     NodeBlueprint::element(
                         Tag::Span,
-                        Vec::<String>::new(),
+                        vec!["whitespace-nowrap shrink-0".to_string()],
                         vec![Attribute::property(
                             "style",
                             format!("color: {};", theme.diag_warning),
                         )],
                         vec![NodeBlueprint::text(format!("▲ {}", counts.warnings))],
                     ),
-                    NodeBlueprint::text(cursor_badge),
+                    NodeBlueprint::element(
+                        Tag::Span,
+                        vec!["whitespace-nowrap shrink-0".to_string()],
+                        vec![Attribute::property("data-status-cursor", "true")],
+                        vec![NodeBlueprint::text(cursor_badge)],
+                    ),
                 ],
             ),
             NodeBlueprint::element(
                 Tag::Div,
-                vec!["flex items-center gap-3".to_string()],
+                vec!["flex items-center gap-3 whitespace-nowrap overflow-hidden shrink-0".to_string()],
                 Vec::new(),
                 vec![
-                    NodeBlueprint::text(format!("Spaces: {}", ed.tab_size())),
-                    NodeBlueprint::text("UTF-8"),
                     NodeBlueprint::element(
                         Tag::Span,
-                        vec!["font-semibold".to_string()],
+                        vec!["whitespace-nowrap shrink-0".to_string()],
+                        vec![Attribute::property("data-status-spaces", "true")],
+                        vec![NodeBlueprint::text(format!("Spaces: {}", ed.tab_size()))],
+                    ),
+                    NodeBlueprint::element(
+                        Tag::Span,
+                        vec!["whitespace-nowrap shrink-0".to_string()],
+                        Vec::new(),
+                        vec![NodeBlueprint::text("UTF-8")],
+                    ),
+                    NodeBlueprint::element(
+                        Tag::Span,
+                        vec!["font-semibold whitespace-nowrap shrink-0".to_string()],
                         vec![Attribute::property(
                             "style",
                             format!("color: {};", theme.gutter_active_fg),

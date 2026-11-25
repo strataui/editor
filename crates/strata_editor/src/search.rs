@@ -46,6 +46,8 @@ impl FindReplaceState {
 
     pub fn close(&mut self) {
         self.is_open = false;
+        self.matches.clear();
+        self.active_match_index = 0;
     }
 
     pub fn set_query(&mut self, query: impl Into<String>, buffer: &LineBuffer) {
@@ -139,9 +141,7 @@ impl FindReplaceState {
             }
         }
 
-        if self.matches.is_empty() {
-            self.active_match_index = 0;
-        } else if self.active_match_index >= self.matches.len() {
+        if self.matches.is_empty() || self.active_match_index >= self.matches.len() {
             self.active_match_index = 0;
         }
     }

@@ -236,8 +236,8 @@ fn test_code_editor_controller_and_rendering() {
 
     // Render blueprint
     let blueprint = editor.render();
-    if let strata_dom::NodeBlueprint::Element { tag, children, .. } = blueprint {
-        assert_eq!(tag, strata_dom::Tag::Div);
+    if let strata_dom::NodeBlueprint::Element { tag, children, .. } = &blueprint {
+        assert_eq!(*tag, strata_dom::Tag::Div);
         // Contains rows for the lines
         assert_eq!(children.len(), 3);
     } else {
@@ -374,7 +374,7 @@ fn test_virtualized_viewport_rendering_on_massive_buffer() {
     let blueprint =
         editor.render_virtualized(scroll_top, viewport_height, line_height, "h-[480px]");
 
-    if let strata_dom::NodeBlueprint::Element { children, .. } = blueprint {
+    if let strata_dom::NodeBlueprint::Element { children, .. } = &blueprint {
         // Child nodes should be: Top spacer + (20 visible + 4 overscan lines = ~24-25 lines) + Bottom spacer
         // Total DOM nodes MUST be under 35, NEVER 10,000!
         assert!(
@@ -468,10 +468,10 @@ fn test_virtualized_rendering_with_soft_wrapping_continuation() {
 
     let blueprint = editor.render_virtualized(0.0, 480.0, 24.0, "h-[480px]");
 
-    if let strata_dom::NodeBlueprint::Element { children, .. } = blueprint {
+    if let strata_dom::NodeBlueprint::Element { children, .. } = &blueprint {
         // Find continuation gutter elements with arrow indicator '↳'
         let mut found_continuation_gutter = false;
-        for row in &children {
+        for row in children {
             if let strata_dom::NodeBlueprint::Element {
                 children: row_children,
                 ..
@@ -517,7 +517,7 @@ fn test_code_editor_auto_virtualization_on_large_document() {
 
     // render() on 5,000 lines should NOT instantiate 5,000 DOM rows
     let blueprint = editor.render();
-    if let strata_dom::NodeBlueprint::Element { children, .. } = blueprint {
+    if let strata_dom::NodeBlueprint::Element { children, .. } = &blueprint {
         assert!(
             children.len() < 50,
             "Auto-virtualization must bound DOM tree nodes. Actual: {}",
@@ -633,9 +633,9 @@ fn test_editor_rendering_preserves_token_whitespace_gaps() {
     let blueprint = editor.render();
 
     // Verify whitespace nodes exist between syntax tokens
-    if let strata_dom::NodeBlueprint::Element { children, .. } = blueprint {
+    if let strata_dom::NodeBlueprint::Element { children, .. } = &blueprint {
         let mut found_whitespace_node = false;
-        for row in &children {
+        for row in children {
             if let strata_dom::NodeBlueprint::Element {
                 children: row_cols, ..
             } = row

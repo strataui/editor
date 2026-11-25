@@ -1410,6 +1410,7 @@ version = "0.2.0"
 name = "strata-device"
 version = "0.1.1"
 dependencies = [
+ "libc",
  "strata-dom",
  "strata-primitives",
  "strata-web-api",

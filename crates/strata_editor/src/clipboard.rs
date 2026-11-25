@@ -30,17 +30,25 @@ impl ClipboardBridge {
             return ClipboardPayload::default();
         }
 
+        let char_col_to_byte = |s: &str, col: usize| -> usize {
+            s.char_indices()
+                .nth(col)
+                .map(|(byte_idx, _)| byte_idx)
+                .unwrap_or(s.len())
+        };
+
         let mut lines = Vec::new();
         if start.line == end.line {
             if let Some(l) = buffer.line(start.line) {
-                let sc = start.col.min(l.len());
-                let ec = end.col.min(l.len());
-                lines.push(l[sc..ec].to_string());
+                let sb = char_col_to_byte(l, start.col);
+                let eb = char_col_to_byte(l, end.col);
+                let (sb, eb) = if sb <= eb { (sb, eb) } else { (eb, sb) };
+                lines.push(l[sb..eb].to_string());
             }
         } else {
             if let Some(first) = buffer.line(start.line) {
-                let sc = start.col.min(first.len());
-                lines.push(first[sc..].to_string());
+                let sb = char_col_to_byte(first, start.col);
+                lines.push(first[sb..].to_string());
             }
             for l in start.line + 1..end.line {
                 if let Some(mid) = buffer.line(l) {
@@ -48,8 +56,8 @@ impl ClipboardBridge {
                 }
             }
             if let Some(last) = buffer.line(end.line) {
-                let ec = end.col.min(last.len());
-                lines.push(last[..ec].to_string());
+                let eb = char_col_to_byte(last, end.col);
+                lines.push(last[..eb].to_string());
             }
         }
 

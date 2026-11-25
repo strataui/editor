@@ -36,6 +36,7 @@ pub struct CodeEditor {
     char_width: f32,
     read_only: bool,
     is_pointer_dragging: bool,
+    edit_revision: u64,
 }
 
 impl CodeEditor {
@@ -68,7 +69,15 @@ impl CodeEditor {
             char_width: 8.4,
             read_only: false,
             is_pointer_dragging: false,
+            edit_revision: 0,
         }
+    }
+
+    /// Monotonic counter incremented **only** when document buffer text actually mutates.
+    /// Non-mutating shortcuts (`Ctrl+F`, `Ctrl+H`, `Ctrl+A`, `Ctrl+C`, navigation, folding)
+    /// leave `edit_revision()` unchanged so `on_change` callbacks never fire falsely.
+    pub fn edit_revision(&self) -> u64 {
+        self.edit_revision
     }
 
     /// Synchronizes live syntax diagnostics, invalidates cached folds, and refreshes open search results.
@@ -119,6 +128,7 @@ impl CodeEditor {
         if edits.is_empty() {
             return;
         }
+        self.edit_revision = self.edit_revision.wrapping_add(1);
         let mut dirty_start = usize::MAX;
         let mut dirty_end = 0usize;
         for edit in edits {
@@ -302,6 +312,7 @@ impl CodeEditor {
         self.scroll_top = 0.0;
         self.scroll_left = 0.0;
         self.highlighter.parse_buffer(&self.buffer);
+        self.edit_revision = self.edit_revision.wrapping_add(1);
         self.on_buffer_mutated();
     }
 
@@ -1158,8 +1169,8 @@ impl CodeEditor {
             let indent = txt.chars().take_while(|c| *c == ' ' || *c == '\t').count();
             if all_commented {
                 let after_indent: String = txt.chars().skip(indent).collect();
-                if after_indent.starts_with(prefix) {
-                    let remove_len = if after_indent[prefix.len()..].starts_with(' ') {
+                if let Some(rest) = after_indent.strip_prefix(prefix) {
+                    let remove_len = if rest.starts_with(' ') {
                         prefix_chars + 1
                     } else {
                         prefix_chars
@@ -1501,6 +1512,102 @@ impl CodeEditor {
         self.set_scroll_top(target);
     }
 
+    /// Copies the active selection(s) to Strata's unified clipboard and returns the copied string.
+    /// When all cursors are collapsed, copies the primary cursor's full logical line (Monaco/VS Code parity).
+    pub fn copy_selection(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        for &sel in self.cursors.all() {
+            if !sel.is_collapsed() {
+                let payload = crate::clipboard::ClipboardBridge::from_selection(&self.buffer, sel);
+                parts.push(payload.plain_text);
+            }
+        }
+        let copied = if !parts.is_empty() {
+            parts.join("\n")
+        } else {
+            let line = self.cursors.primary().focus.line;
+            let text = self.buffer.line(line)?;
+            format!("{text}\n")
+        };
+        strata_dom::clipboard::set_clipboard_text(&copied);
+        Some(copied)
+    }
+
+    /// Cuts the active selection(s) (or primary logical line when collapsed) to Strata's unified clipboard.
+    pub fn cut_selection(&mut self) -> Option<String> {
+        if self.read_only {
+            return None;
+        }
+        let copied = self.copy_selection()?;
+        let has_selection = self.cursors.all().iter().any(|s| !s.is_collapsed());
+        if has_selection {
+            let edits: Vec<(Position, Position, String)> = self
+                .cursors
+                .all()
+                .iter()
+                .filter(|s| !s.is_collapsed())
+                .map(|s| {
+                    let (start, end) = s.ordered_range();
+                    (start, end, String::new())
+                })
+                .collect();
+            self.replace_ranges_atomic(edits);
+        } else {
+            let line = self.cursors.primary().focus.line;
+            let line_count = self.buffer.line_count();
+            let cur_len = self.buffer.line_len(line);
+            if line + 1 < line_count {
+                self.replace_range(Position::new(line, 0), Position::new(line + 1, 0), "");
+            } else if line > 0 {
+                let prev_len = self.buffer.line_len(line - 1);
+                self.replace_range(
+                    Position::new(line - 1, prev_len),
+                    Position::new(line, cur_len),
+                    "",
+                );
+            } else if cur_len > 0 {
+                self.replace_range(Position::new(0, 0), Position::new(0, cur_len), "");
+            }
+        }
+        Some(copied)
+    }
+
+    /// Pastes UTF-8 text (normalizing CRLF/CR line endings) at all active cursors.
+    pub fn paste_text(&mut self, text: &str) -> bool {
+        if self.read_only || text.is_empty() {
+            return false;
+        }
+        let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        if normalized.is_empty() {
+            return false;
+        }
+        self.insert_text(&normalized);
+        true
+    }
+
+    /// Handles a W3C DOM `EventType::Input` event (e.g. atomic multi-character `ImeCommit`).
+    pub fn handle_input_event(&mut self, e: &Event) -> bool {
+        if self.read_only {
+            return false;
+        }
+        let text = if !e.value.is_empty() {
+            e.value.as_str()
+        } else if let Some(ref data) = e.data {
+            data.as_str()
+        } else {
+            ""
+        };
+        if text.is_empty() {
+            return false;
+        }
+        if self.paste_text(text) {
+            self.ensure_cursor_visible();
+            true
+        } else {
+            false
+        }
+    }
+
     /// Handles a W3C-compatible Strata [`Event`] keydown with full Monaco keybindings.
     /// Returns `true` if the event was handled and mutated editor state.
     pub fn handle_key_event(&mut self, e: &Event) -> bool {
@@ -1519,6 +1626,27 @@ impl CodeEditor {
                 }
                 "a" | "A" => {
                     self.select_all();
+                    return true;
+                }
+                "c" | "C" => {
+                    let _ = self.copy_selection();
+                    return true;
+                }
+                "x" | "X" => {
+                    if !self.read_only {
+                        let _ = self.cut_selection();
+                        self.ensure_cursor_visible();
+                    }
+                    return true;
+                }
+                "v" | "V" => {
+                    if !self.read_only {
+                        if let Some(clip) = strata_dom::clipboard::get_clipboard_text() {
+                            if self.paste_text(&clip) {
+                                self.ensure_cursor_visible();
+                            }
+                        }
+                    }
                     return true;
                 }
                 "z" | "Z" => {
@@ -1543,12 +1671,12 @@ impl CodeEditor {
                     self.toggle_line_comment();
                     return true;
                 }
-                "[" if e.shift_key => {
+                "[" | "{" if e.shift_key => {
                     let line = self.cursors.primary().focus.line;
                     self.toggle_fold_at(line);
                     return true;
                 }
-                "]" if e.shift_key => {
+                "]" | "}" if e.shift_key => {
                     let line = self.cursors.primary().focus.line;
                     if self.is_folded(line) {
                         self.toggle_fold(line);

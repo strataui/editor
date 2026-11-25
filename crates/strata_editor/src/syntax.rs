@@ -591,7 +591,8 @@ impl SyntaxHighlighter {
                 cur_state = next_state;
             }
         }
-        self.last_changed_lines = vec![0..n];
+        self.last_changed_lines.clear();
+        self.last_changed_lines.push(0..n);
     }
 
     /// Informs the Tree-Sitter AST and incremental line-state cache of an edit before re-parsing.
