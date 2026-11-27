@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use strata_primitives::color::Rgba;
 
 use crate::diagnostics::DiagnosticSeverity;
-use crate::syntax::TokenType;
+use crate::language::TokenType;
 
 /// Complete theme definition for the Monaco-class code editor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

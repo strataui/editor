@@ -565,7 +565,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bb0228f477c0900c880fd78c8759b95c7636dbd7842707f49e132378aa2acdc"
 dependencies = [
  "heck 0.4.1",
- "proc-macro-crate 2.0.2",
+ "proc-macro-crate 2.0.0",
  "proc-macro-error",
  "proc-macro2",
  "quote",
@@ -1097,11 +1097,10 @@ dependencies = [
 
 [[package]]
 name = "proc-macro-crate"
-version = "2.0.2"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b00f26d3400549137f92511a46ac1cd8ce37cb5598a96d382381458b992a5d24"
+checksum = "7e8366a6159044a37876a2b9817124296703c586a5c92e2c53751fa06d8d43e8"
 dependencies = [
- "toml_datetime",
  "toml_edit 0.20.2",
 ]
 
@@ -1394,7 +1393,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "strata-a11y"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "accesskit",
  "strata-dom",
@@ -1408,7 +1407,7 @@ version = "0.2.0"
 
 [[package]]
 name = "strata-device"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "libc",
  "strata-dom",
@@ -1418,14 +1417,14 @@ dependencies = [
 
 [[package]]
 name = "strata-dom"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "strata-primitives",
 ]
 
 [[package]]
 name = "strata-editor"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "regex",
  "serde",
@@ -1443,7 +1442,7 @@ dependencies = [
 
 [[package]]
 name = "strata-gpu-path"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "strata-primitives",
 ]
@@ -1457,7 +1456,7 @@ dependencies = [
 
 [[package]]
 name = "strata-layout"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "strata-primitives",
  "strata-style",
@@ -1465,15 +1464,15 @@ dependencies = [
 
 [[package]]
 name = "strata-macro"
-version = "0.1.3"
+version = "0.1.4"
 
 [[package]]
 name = "strata-primitives"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "strata-render"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "bytemuck",
  "miniz_oxide 0.8.9",
@@ -1489,7 +1488,7 @@ dependencies = [
 
 [[package]]
 name = "strata-storage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ring",
  "strata-vfs",
@@ -1497,14 +1496,14 @@ dependencies = [
 
 [[package]]
 name = "strata-style"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "strata-primitives",
 ]
 
 [[package]]
 name = "strata-ui"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -1527,7 +1526,7 @@ dependencies = [
 
 [[package]]
 name = "strata-ui-platform"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "cairo-rs",
  "gtk",
@@ -1547,11 +1546,11 @@ dependencies = [
 
 [[package]]
 name = "strata-vfs"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "strata-web-api"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "brotli",
  "flate2",
@@ -1709,21 +1708,21 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.8.2"
+version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "185d8ab0dfbb35cf1399a6344d8484209c088f75f8f68230da55d48d95d43e3d"
+checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
 dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "toml_edit 0.20.2",
+ "toml_edit 0.22.27",
 ]
 
 [[package]]
 name = "toml_datetime"
-version = "0.6.3"
+version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cda73e2f1397b1262d6dfdcef8aafae14d1de7748d66822d3bfeeb6d03e5e4b"
+checksum = "22cddaf88f4fbc13c51aebbf5f8eceb5c7c5a9da2ac40a13519eb5b0a0e8f11c"
 dependencies = [
  "serde",
 ]
@@ -1736,7 +1735,7 @@ checksum = "1b5bb770da30e5cbfde35a2d7b9b8a2c4b8ef89548a7a6aeab5c9a576e3e7421"
 dependencies = [
  "indexmap",
  "toml_datetime",
- "winnow",
+ "winnow 0.5.40",
 ]
 
 [[package]]
@@ -1746,10 +1745,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "396e4d48bbb2b7554c944bde63101b5ae446cff6ec4a24227428f15eb72ef338"
 dependencies = [
  "indexmap",
+ "toml_datetime",
+ "winnow 0.5.40",
+]
+
+[[package]]
+name = "toml_edit"
+version = "0.22.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
+dependencies = [
+ "indexmap",
  "serde",
  "serde_spanned",
  "toml_datetime",
- "winnow",
+ "winnow 0.7.15",
 ]
 
 [[package]]
@@ -2223,6 +2233,15 @@ name = "winnow"
 version = "0.5.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f593a95398737aeed53e489c785df13f3618e41dbcd6718c6addbf1395aa6876"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "winnow"
+version = "0.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
 dependencies = [
  "memchr",
 ]

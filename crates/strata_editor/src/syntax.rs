@@ -109,64 +109,56 @@ impl Language {
         }
     }
 
+    /// Default block comment delimiters for `Ctrl+Shift+A` / `Shift+Alt+A` toggle-block-comment.
+    pub const fn block_comment_delimiters(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Self::Rust | Self::Cpp | Self::JavaScript | Self::TypeScript => Some(("/*", "*/")),
+            Self::XmlSdf | Self::Html | Self::Markdown => Some(("<!--", "-->")),
+            Self::Python | Self::Yaml | Self::Toml | Self::Shell | Self::Json | Self::PlainText => {
+                None
+            }
+        }
+    }
+
     /// Whether this language uses a native Tree-Sitter grammar by default.
     pub const fn has_builtin_tree_sitter(self) -> bool {
         matches!(self, Self::Rust | Self::JavaScript)
     }
+
+    /// Converts this legacy enum variant into an open [`crate::language::LanguageId`].
+    pub fn to_language_id(self) -> crate::language::LanguageId {
+        let id = match self {
+            Self::Rust => "rust",
+            Self::Python => "python",
+            Self::Json => "json",
+            Self::Yaml => "yaml",
+            Self::Toml => "toml",
+            Self::XmlSdf => "xml",
+            Self::Cpp => "cpp",
+            Self::JavaScript => "javascript",
+            Self::TypeScript => "typescript",
+            Self::Markdown => "markdown",
+            Self::Shell => "shell",
+            Self::Html => "html",
+            Self::PlainText => "plaintext",
+        };
+        crate::language::LanguageId::new(id)
+    }
+
+    /// Converts this legacy enum variant into a [`crate::language::LanguageConfig`].
+    pub fn to_language_config(self) -> crate::language::LanguageConfig {
+        let mut cfg = crate::language::LanguageConfig::plaintext();
+        cfg.id = self.to_language_id();
+        cfg.display_name = self.display_name().to_string();
+        cfg.line_comment = self.line_comment_prefix().map(str::to_string);
+        cfg.block_comment = self
+            .block_comment_delimiters()
+            .map(|(open, close)| (open.to_string(), close.to_string()));
+        cfg
+    }
 }
 
-/// Token classification for semantic syntax highlighting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum TokenType {
-    Keyword,
-    ControlFlow,
-    Type,
-    Function,
-    Macro,
-    Identifier,
-    Parameter,
-    Property,
-    String,
-    StringEscape,
-    Number,
-    Boolean,
-    Comment,
-    DocComment,
-    Operator,
-    Punctuation,
-    Tag,
-    Attribute,
-    Namespace,
-    Heading,
-    Link,
-    Variable,
-}
-
-/// A highlighted syntax token with UTF-8 byte column span offsets within its line.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyntaxToken {
-    pub token_type: TokenType,
-    pub start_col: usize,
-    pub end_col: usize,
-    pub text: String,
-}
-
-/// A collapsible block of code in the editor gutter.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FoldRange {
-    pub start_line: usize,
-    pub end_line: usize,
-    pub collapsed: bool,
-}
-
-/// Lightweight structural syntax diagnostic emitted directly by the incremental syntax engine.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SyntaxDiagnostic {
-    pub start: Position,
-    pub end: Position,
-    pub message: String,
-    pub is_warning: bool,
-}
+pub use crate::language::{FoldRange, SyntaxDiagnostic, SyntaxToken, TokenType};
 
 /// Persistent cross-line lexer state stored per line for O(delta) incremental re-tokenization.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -3505,3 +3497,56 @@ fn compute_shell_fold_ranges(buffer: &LineBuffer) -> Vec<FoldRange> {
     }
     ranges
 }
+
+impl crate::language::SyntaxProvider for SyntaxHighlighter {
+    fn language_id(&self) -> crate::language::LanguageId {
+        self.language().to_language_id()
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::language::SyntaxProvider> {
+        Box::new(self.clone())
+    }
+
+    fn parse_full(&mut self, buffer: &LineBuffer) {
+        self.parse_buffer(buffer);
+    }
+
+    fn apply_edit(&mut self, _buffer: &LineBuffer, edit: &crate::language::TextEditDelta) {
+        let ts_edit: tree_sitter::InputEdit = edit.into();
+        self.edit(&ts_edit);
+    }
+
+    fn reparse_range(&mut self, buffer: &LineBuffer, dirty_start: usize, dirty_end: usize) {
+        self.reparse_incremental_buffer(buffer, dirty_start, dirty_end);
+    }
+
+    fn tokenize_line(&self, line_idx: usize, line_text: &str) -> Vec<SyntaxToken> {
+        self.highlight_line_ast(line_idx, line_text)
+    }
+
+    fn fold_ranges(&self, buffer: &LineBuffer) -> Vec<FoldRange> {
+        self.compute_fold_ranges(buffer)
+    }
+
+    fn syntax_diagnostics(&self, buffer: &LineBuffer) -> Vec<SyntaxDiagnostic> {
+        self.collect_syntax_diagnostics(buffer)
+    }
+
+    fn matching_bracket(&self, buffer: &LineBuffer, pos: Position) -> Option<(Position, Position)> {
+        let mate = self.find_matching_bracket(buffer, pos)?;
+        Some((pos, mate))
+    }
+
+    fn compute_auto_indent(&self, buffer: &LineBuffer, line_idx: usize, _tab_size: usize) -> usize {
+        SyntaxHighlighter::compute_auto_indent(self, buffer, line_idx)
+    }
+
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
+}
+

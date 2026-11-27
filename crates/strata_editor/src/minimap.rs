@@ -193,7 +193,7 @@ pub fn render_minimap_canvas_commands(
             continue;
         }
         let y = row as f32 * config.line_pitch;
-        let tokens = editor.highlighter().highlight_line_ast(logical_line, line_text);
+        let tokens = editor.tokenize_line(logical_line, line_text);
 
         if tokens.is_empty() {
             let leading = line_text.chars().take_while(|c| c.is_whitespace()).count();
@@ -208,7 +208,7 @@ pub fn render_minimap_canvas_commands(
                     width: bar_w,
                     height: bar_h,
                 },
-                color: theme.minimap_token_rgba(crate::syntax::TokenType::Identifier),
+                color: theme.minimap_token_rgba(crate::language::TokenType::Identifier),
             });
             continue;
         }

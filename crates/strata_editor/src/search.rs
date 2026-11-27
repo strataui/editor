@@ -23,6 +23,8 @@ pub struct FindReplaceState {
     pub case_sensitive: bool,
     pub whole_word: bool,
     pub use_regex: bool,
+    #[serde(default)]
+    pub preserve_case: bool,
     pub is_open: bool,
     pub show_replace: bool,
     pub active_match_index: usize,
@@ -72,6 +74,10 @@ impl FindReplaceState {
     pub fn toggle_regex(&mut self, buffer: &LineBuffer) {
         self.use_regex = !self.use_regex;
         self.recompute_matches(buffer);
+    }
+
+    pub fn toggle_preserve_case(&mut self) {
+        self.preserve_case = !self.preserve_case;
     }
 
     /// Recomputes all matches across `buffer` cleanly with Unicode char-column accuracy.
@@ -246,22 +252,52 @@ impl FindReplaceState {
     }
 
     fn expand_replacement(&self, matched_text: &str) -> String {
-        if !self.use_regex {
-            return self.replacement.clone();
-        }
-        let pattern = if self.whole_word {
-            format!(r"\b(?:{})\b", self.query)
-        } else {
-            self.query.clone()
-        };
-        if let Ok(re) = RegexBuilder::new(&pattern)
-            .case_insensitive(!self.case_sensitive)
-            .build()
-        {
-            re.replace(matched_text, self.replacement.as_str())
-                .into_owned()
-        } else {
+        let base = if !self.use_regex {
             self.replacement.clone()
+        } else {
+            let pattern = if self.whole_word {
+                format!(r"\b(?:{})\b", self.query)
+            } else {
+                self.query.clone()
+            };
+            if let Ok(re) = RegexBuilder::new(&pattern)
+                .case_insensitive(!self.case_sensitive)
+                .build()
+            {
+                re.replace(matched_text, self.replacement.as_str())
+                    .into_owned()
+            } else {
+                self.replacement.clone()
+            }
+        };
+
+        if !self.preserve_case || base.is_empty() || matched_text.is_empty() {
+            return base;
+        }
+        let mut alphas = matched_text.chars().filter(|c| c.is_alphabetic());
+        let Some(first_alpha) = alphas.next() else {
+            return base;
+        };
+        let rest_alphas: Vec<char> = alphas.collect();
+        if first_alpha.is_uppercase()
+            && !rest_alphas.is_empty()
+            && rest_alphas.iter().all(|c| c.is_uppercase())
+        {
+            base.to_uppercase()
+        } else if first_alpha.is_lowercase() && rest_alphas.iter().all(|c| c.is_lowercase()) {
+            base.to_lowercase()
+        } else if first_alpha.is_uppercase() && rest_alphas.iter().all(|c| c.is_lowercase()) {
+            let mut chars = base.chars();
+            match chars.next() {
+                Some(first) => {
+                    let mut out = first.to_uppercase().to_string();
+                    out.push_str(&chars.as_str().to_lowercase());
+                    out
+                }
+                None => base,
+            }
+        } else {
+            base
         }
     }
 }

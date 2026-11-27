@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::cursor::Position;
-use crate::syntax::SyntaxDiagnostic;
+use crate::language::SyntaxDiagnostic;
 
 /// Diagnostic severity levels aligned with the Language Server Protocol (LSP).
 #[derive(

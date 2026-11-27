@@ -914,15 +914,22 @@ impl TextRope {
         self.root.position_to_byte(clamped_line, char_col)
     }
 
-    /// Computes the Tree-Sitter `Point { row, column }` (byte column within row) for `(line, char_col)`.
-    pub fn position_to_point(&self, line: usize, char_col: usize) -> tree_sitter::Point {
+    /// Computes a pure-Rust [`crate::language::TextPoint`] (row, byte column) for `(line, char_col)`.
+    pub fn position_to_text_point(&self, line: usize, char_col: usize) -> crate::language::TextPoint {
         let clamped_line = line.min(self.line_count().saturating_sub(1));
         let byte_col = self
             .line(clamped_line)
             .map_or(0, |l| char_to_byte(l, char_col));
+        crate::language::TextPoint::new(clamped_line, byte_col)
+    }
+
+    /// Computes the Tree-Sitter `Point { row, column }` (byte column within row) for `(line, char_col)`.
+    #[cfg(feature = "builtin-syntax")]
+    pub fn position_to_point(&self, line: usize, char_col: usize) -> tree_sitter::Point {
+        let pt = self.position_to_text_point(line, char_col);
         tree_sitter::Point {
-            row: clamped_line,
-            column: byte_col,
+            row: pt.row,
+            column: pt.column,
         }
     }
 
@@ -931,52 +938,63 @@ impl TextRope {
         self.root.byte_to_position(byte_offset, 0)
     }
 
-    /// Computes an exact [`tree_sitter::InputEdit`] describing replacing `[start..old_end)` with
-    /// `inserted_text` **before** applying the mutation to the rope.
-    pub fn compute_input_edit(
+    /// Computes a pure-Rust [`crate::language::TextEditDelta`] describing replacing `[start..old_end)`
+    /// with `inserted_text` **before** applying the mutation to the rope.
+    pub fn compute_edit_delta(
         &self,
         start: crate::cursor::Position,
         old_end: crate::cursor::Position,
         inserted_text: &str,
-    ) -> (tree_sitter::InputEdit, crate::cursor::Position) {
+    ) -> (crate::language::TextEditDelta, crate::cursor::Position) {
         let start_byte = self.position_to_byte(start.line, start.col);
         let old_end_byte = self.position_to_byte(old_end.line, old_end.col);
         let new_end_byte = start_byte + inserted_text.len();
 
-        let start_position = self.position_to_point(start.line, start.col);
-        let old_end_position = self.position_to_point(old_end.line, old_end.col);
+        let start_position = self.position_to_text_point(start.line, start.col);
+        let old_end_position = self.position_to_text_point(old_end.line, old_end.col);
 
         let (new_end_position, new_end_char_pos) = if let Some(last_nl) = inserted_text.rfind('\n') {
             let added_rows = inserted_text.bytes().filter(|&b| b == b'\n').count();
             let tail = &inserted_text[last_nl + 1..];
             (
-                tree_sitter::Point {
-                    row: start_position.row + added_rows,
-                    column: tail.len(),
-                },
+                crate::language::TextPoint::new(start_position.row + added_rows, tail.len()),
                 crate::cursor::Position::new(start.line + added_rows, tail.chars().count()),
             )
         } else {
             (
-                tree_sitter::Point {
-                    row: start_position.row,
-                    column: start_position.column + inserted_text.len(),
-                },
+                crate::language::TextPoint::new(
+                    start_position.row,
+                    start_position.column + inserted_text.len(),
+                ),
                 crate::cursor::Position::new(start.line, start.col + inserted_text.chars().count()),
             )
         };
 
         (
-            tree_sitter::InputEdit {
+            crate::language::TextEditDelta {
                 start_byte,
                 old_end_byte,
                 new_end_byte,
                 start_position,
                 old_end_position,
                 new_end_position,
+                inserted_text: inserted_text.to_string(),
             },
             new_end_char_pos,
         )
+    }
+
+    /// Computes an exact [`tree_sitter::InputEdit`] describing replacing `[start..old_end)` with
+    /// `inserted_text` **before** applying the mutation to the rope.
+    #[cfg(feature = "builtin-syntax")]
+    pub fn compute_input_edit(
+        &self,
+        start: crate::cursor::Position,
+        old_end: crate::cursor::Position,
+        inserted_text: &str,
+    ) -> (tree_sitter::InputEdit, crate::cursor::Position) {
+        let (delta, pos) = self.compute_edit_delta(start, old_end, inserted_text);
+        ((&delta).into(), pos)
     }
 
     /// Returns a slice of lines for virtual viewport rendering in logarithmic time.
@@ -1058,7 +1076,13 @@ impl LineBuffer {
         self.rope.position_to_byte(pos.line, pos.col)
     }
 
+    /// Computes a pure-Rust [`crate::language::TextPoint`] (row, byte column) for `pos`.
+    pub fn position_to_text_point(&self, pos: crate::cursor::Position) -> crate::language::TextPoint {
+        self.rope.position_to_text_point(pos.line, pos.col)
+    }
+
     /// Computes the Tree-Sitter `Point` (byte column) for `pos`.
+    #[cfg(feature = "builtin-syntax")]
     pub fn position_to_point(&self, pos: crate::cursor::Position) -> tree_sitter::Point {
         self.rope.position_to_point(pos.line, pos.col)
     }
@@ -1069,8 +1093,20 @@ impl LineBuffer {
         crate::cursor::Position::new(line, col)
     }
 
+    /// Computes a pure-Rust [`crate::language::TextEditDelta`] describing replacing `[start..old_end)`
+    /// with `inserted_text` **before** applying the mutation to the buffer.
+    pub fn compute_edit_delta(
+        &self,
+        start: crate::cursor::Position,
+        old_end: crate::cursor::Position,
+        inserted_text: &str,
+    ) -> (crate::language::TextEditDelta, crate::cursor::Position) {
+        self.rope.compute_edit_delta(start, old_end, inserted_text)
+    }
+
     /// Computes an exact [`tree_sitter::InputEdit`] describing replacing `[start..old_end)` with
     /// `inserted_text` **before** applying the mutation to the buffer.
+    #[cfg(feature = "builtin-syntax")]
     pub fn compute_input_edit(
         &self,
         start: crate::cursor::Position,

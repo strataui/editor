@@ -149,7 +149,7 @@ fn test_virtualized_scrolling_keeps_rows_visible_and_clicks_aligned_at_160px_and
         .join("\n");
     let handle = CodeEditorHandle::new(&content, Language::Rust);
     let options = CodeEditorOptions {
-        viewport_height: 240.0,
+        viewport_height: Some(240.0),
         line_height: 22.0,
         show_minimap: false,
         ..CodeEditorOptions::default()
@@ -235,7 +235,7 @@ fn test_folded_row_stays_single_line_horizontal_without_overlapping_next_line() 
 
     let handle = CodeEditorHandle::new(&content, Language::Json);
     let options = CodeEditorOptions {
-        viewport_height: 300.0,
+        viewport_height: Some(300.0),
         line_height: 22.0,
         show_minimap: false,
         ..CodeEditorOptions::default()
@@ -319,7 +319,7 @@ fn test_mid_line_caret_renders_inline_at_exact_column_not_at_eol() {
     let content = "  \"name\": \"Model 3\",\n";
     let handle = CodeEditorHandle::new(content, Language::Json);
     let options = CodeEditorOptions {
-        viewport_height: 200.0,
+        viewport_height: Some(200.0),
         line_height: 22.0,
         show_minimap: false,
         ..CodeEditorOptions::default()
@@ -401,7 +401,7 @@ fn test_find_replace_keybindings_clipboard_false_on_change_and_received_characte
     let initial = "fn main() {\n    let alpha = \"hello\";\n    let beta = alpha;\n}\n";
     let handle = CodeEditorHandle::new(initial, Language::Rust);
     let options = CodeEditorOptions {
-        viewport_height: 240.0,
+        viewport_height: Some(240.0),
         line_height: 22.0,
         show_minimap: false,
         on_change: Some(Rc::new(move |_txt: String| {
@@ -590,7 +590,7 @@ fn test_find_replace_keybindings_clipboard_false_on_change_and_received_characte
 fn test_status_bar_spaces_label_stays_single_line_without_wrapping() {
     let handle = CodeEditorHandle::new("let a = 1;\n", Language::Rust);
     let options = CodeEditorOptions {
-        viewport_height: 180.0,
+        viewport_height: Some(180.0),
         line_height: 22.0,
         show_minimap: false,
         show_status_bar: true,
@@ -624,5 +624,112 @@ fn test_status_bar_spaces_label_stays_single_line_without_wrapping() {
         "Status bar 'Spaces: 4' ({:?}) must not clip past status bar {:?}",
         spaces_box,
         status_bar_box
+    );
+}
+
+#[test]
+fn test_auto_measured_viewport_height_re_virtualizes_on_container_resize() {
+    fn count_editor_rows(bp: &NodeBlueprint) -> usize {
+        match bp {
+            NodeBlueprint::Element {
+                attributes,
+                children,
+                ..
+            } => {
+                let is_row = attributes.iter().any(|a| {
+                    matches!(
+                        a,
+                        strata_dom::Attribute::Property { key, .. } if key == "data-editor-row"
+                    )
+                });
+                usize::from(is_row) + children.iter().map(count_editor_rows).sum::<usize>()
+            }
+            NodeBlueprint::Fragment(children) => children.iter().map(count_editor_rows).sum(),
+            _ => 0,
+        }
+    }
+
+    let content = (0..120)
+        .map(|i| format!("let line_{i:03} = {i};"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let handle = CodeEditorHandle::new(&content, Language::Rust);
+    let options = CodeEditorOptions {
+        viewport_height: None,
+        line_height: 20.0,
+        show_minimap: true,
+        show_status_bar: false,
+        ..CodeEditorOptions::default()
+    };
+
+    // Embed inside a Fragment-wrapped resizable flex container with a 40px header chrome,
+    // without passing any manual viewport_height pixel arithmetic.
+    let build_panel = |h: &CodeEditorHandle, opts: &CodeEditorOptions, panel_h: f32| {
+        View::new(NodeBlueprint::element(
+            Tag::Div,
+            vec!["w-full flex flex-col".to_string()],
+            vec![strata_dom::Attribute::property(
+                "style",
+                format!("height: {panel_h:.0}px;"),
+            )],
+            vec![
+                NodeBlueprint::element(
+                    Tag::Div,
+                    vec!["h-[40px] shrink-0".to_string()],
+                    Vec::new(),
+                    vec![NodeBlueprint::text("Panel Header")],
+                ),
+                NodeBlueprint::fragment(vec![render_interactive_editor(h, opts)]),
+            ],
+        ))
+    };
+
+    // 1. Mount inside a 260px panel (40px header -> ~218px viewport after 2px border).
+    let mut runtime = AppRuntime::new(build_panel(&handle, &options, 260.0), 800.0, 900.0, 1.0);
+    let measured_small = handle
+        .measured_viewport_height()
+        .expect("ResizeObserver must measure viewport height on mount");
+    assert!(
+        (measured_small - 218.0).abs() <= 4.0,
+        "Expected auto-measured height ~218px (260px panel - 40px header - 2px border), got {measured_small}"
+    );
+    assert!(
+        (handle.with_editor(|e| e.viewport_height()) - measured_small).abs() <= 0.5,
+        "Inner CodeEditor viewport_height must sync to measured container height"
+    );
+
+    // Re-render with the measured height so row virtualization matches the 218px pane.
+    runtime.update_view(build_panel(&handle, &options, 260.0));
+    let small_rows = count_editor_rows(&runtime.root_blueprint);
+    assert!(
+        small_rows <= 20,
+        "218px viewport at 20px line height should virtualize ~17 rows, got {small_rows}"
+    );
+
+    // 2. Resize panel up to 700px (40px header -> ~658px viewport): must auto-measure and
+    //    virtualize significantly more rows without manual viewport_height updates.
+    runtime.update_view(build_panel(&handle, &options, 700.0));
+    let measured_large = handle
+        .measured_viewport_height()
+        .expect("ResizeObserver must update measured height on panel resize");
+    assert!(
+        (measured_large - 658.0).abs() <= 4.0,
+        "Expected auto-measured height ~658px after panel expansion, got {measured_large}"
+    );
+    runtime.update_view(build_panel(&handle, &options, 700.0));
+    let large_rows = count_editor_rows(&runtime.root_blueprint);
+    assert!(
+        large_rows >= 32 && large_rows > small_rows + 12,
+        "Expanded 658px viewport must virtualize >=32 rows (small={small_rows}, large={large_rows})"
+    );
+    assert!(
+        find_box_by_prop(
+            &runtime.root_blueprint,
+            &runtime.layout_root,
+            "data-editor-row",
+            "30",
+        )
+        .is_some(),
+        "Row 30 must be visible inside expanded 658px auto-measured viewport"
     );
 }
